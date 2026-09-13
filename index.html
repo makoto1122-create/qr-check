@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QRコード高速照合システム</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f4f7f6; margin: 0; }
+    h2 { margin-top: 10px; font-size: 20px; }
+    #status { margin-bottom: 15px; font-weight: bold; color: #0066cc; }
+    
+    #reader { width: 100%; max-width: 360px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; min-height: 250px; }
+    
+    .manual-input { margin-top: 20px; }
+    input[type="text"] { padding: 12px; width: 65%; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    button.search-btn { padding: 12px 15px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-left: 2%; width: 28%; }
+    
+    #result-box { margin-top: 20px; padding: 20px; border-radius: 8px; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; max-width: 360px; margin-left: auto; margin-right: auto; }
+    .label { font-size: 14px; color: #666; margin-top: 15px; }
+    .value { font-size: 22px; font-weight: bold; color: #333; margin-bottom: 5px; }
+    .error { color: #d9534f; font-size: 20px; font-weight: bold; }
+    .success-text { color: #5cb85c; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h2>チケット照合システム</h2>
+  
+  <div id="status">⏳ データを読み込み中...</div>
+
+  <!-- カメラリアルタイム映像枠 -->
+  <div id="reader"></div>
+
+  <div class="manual-input">
+    <input type="text" id="targetText" placeholder="QRデータを入力" onkeydown="if(event.key==='Enter') manualSearch()" disabled>
+    <button id="searchBtn" class="search-btn" onclick="manualSearch()" disabled>検索</button>
+  </div>
+  
+  <div id="result-box">
+    <div id="result-msg"></div>
+    <div id="result-details" style="display: none;">
+      <div class="label">試合日</div>
+      <div class="value" id="res-date"></div>
+      <div class="label">契約名義</div>
+      <div class="value" id="res-name"></div>
+    </div>
+  </div>
+
+  <script>
+    // ★手順1で取得したGASのデプロイURLをここに貼り付けてください
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyh76j6M70AZrrOTI6xg357l3WAMjxGv4Ry7rvjGDjIt1qqz_GRK0Yvt1bG2prPaucD/exec";
+
+    let dataMap = new Map();
+    let html5Qrcode = null;
+
+    window.onload = async function() {
+      try {
+        // GASから5万件のデータを取得
+        const res = await fetch(GAS_API_URL);
+        const dataList = await res.json();
+
+        if (dataList.error) {
+          document.getElementById('status').innerText = "❌ " + dataList.error;
+          return;
+        }
+
+        // 高速検索用Mapに保存
+        for (let i = 0; i < dataList.length; i++) {
+          dataMap.set(dataList[i].key, { date: dataList[i].date, name: dataList[i].name });
+        }
+
+        document.getElementById('status').innerText = `✅ 準備完了！(${dataMap.size}件のデータ)`;
+        document.getElementById('targetText').disabled = false;
+        document.getElementById('searchBtn').disabled = false;
+
+        // 本物のWebドメインなのでカメラがスムーズに自動起動します！
+        startCamera();
+
+      } catch (err) {
+        console.error(err);
+        document.getElementById('status').innerText = "❌ データの読み込みに失敗しました。";
+      }
+    };
+
+    // カメラ自動起動＆リアルタイムスキャン
+    function startCamera() {
+      html5Qrcode = new Html5Qrcode("reader");
+      const config = { fps: 15, qrbox: { width: 220, height: 220 } };
+
+      html5Qrcode.start(
+        { facingMode: "environment" }, // 背面カメラ
+        config,
+        function(decodedText) {
+          // QRコードを「かざすだけ」で一瞬で検知
+          document.getElementById('targetText').value = decodedText;
+          searchAndDisplay(decodedText);
+        },
+        function(errorMessage) {
+          // 走査中のエラーは無視
+        }
+      ).catch(function(err) {
+        console.error("カメラエラー:", err);
+        document.getElementById('status').innerText = "⚠️ カメラが起動できませんでした。権限をご確認ください。";
+      });
+    }
+
+    function manualSearch() {
+      const inputEl = document.getElementById('targetText');
+      const text = inputEl.value.trim();
+      if(text === "") return;
+      searchAndDisplay(text);
+      inputEl.select();
+    }
+
+    function searchAndDisplay(text) {
+      const resultBox = document.getElementById('result-box');
+      const resultMsg = document.getElementById('result-msg');
+      const resultDetails = document.getElementById('result-details');
+      const resDate = document.getElementById('res-date');
+      const resName = document.getElementById('res-name');
+
+      resultBox.style.display = 'block';
+      const data = dataMap.get(text);
+
+      if (data) {
+        resultMsg.innerHTML = '<div class="success-text">✅ 照合OK</div>';
+        resDate.innerText = data.date;
+        resName.innerText = data.name;
+        resultDetails.style.display = 'block';
+      } else {
+        resultMsg.innerHTML = '<div class="error">❌ 該当データなし</div>';
+        resultDetails.style.display = 'none';
+      }
+    }
+  </script>
+</body>
+</html>
