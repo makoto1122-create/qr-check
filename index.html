@@ -28,7 +28,6 @@
   
   <div id="status">⏳ データを読み込み中...</div>
 
-  <!-- カメラリアルタイム映像枠 -->
   <div id="reader"></div>
 
   <div class="manual-input">
@@ -47,33 +46,36 @@
   </div>
 
   <script>
-    // ★手順1で取得したGASのデプロイURLをここに貼り付けてください
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyh76j6M70AZrrOTI6xg357l3WAMjxGv4Ry7rvjGDjIt1qqz_GRK0Yvt1bG2prPaucD/exec";
+    // ★手順1で取得したURLをここに貼り付けてください（" " で囲むのを忘れずに）
+    const TSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTchepW59QeTUZfT1iY0SFhINTT305WxZ38kP1ud-iuK7dyHcRN3RZE-wmNTe3mEuGaqiARIfA6ZmDf/pub?gid=0&single=true&output=tsv";
 
     let dataMap = new Map();
     let html5Qrcode = null;
 
     window.onload = async function() {
       try {
-        // GASから5万件のデータを取得
-        const res = await fetch(GAS_API_URL);
-        const dataList = await res.json();
+        // GASを経由せず、Googleサーバーから直接データをダウンロード（爆速）
+        const res = await fetch(TSV_URL);
+        const tsvText = await res.text();
 
-        if (dataList.error) {
-          document.getElementById('status').innerText = "❌ " + dataList.error;
-          return;
-        }
-
-        // 高速検索用Mapに保存
-        for (let i = 0; i < dataList.length; i++) {
-          dataMap.set(dataList[i].key, { date: dataList[i].date, name: dataList[i].name });
+        // 読み込んだテキストを改行で切り分ける
+        const lines = tsvText.split(/\r?\n/);
+        
+        // 1行目（ヘッダー行）は飛ばしたい場合は i = 1 からスタート
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split('\t'); // タブで分割
+          if (cols.length >= 3) {
+            const key = String(cols[0]).trim();
+            if (key !== "") {
+              dataMap.set(key, { date: cols[1], name: cols[2] });
+            }
+          }
         }
 
         document.getElementById('status').innerText = `✅ 準備完了！(${dataMap.size}件のデータ)`;
         document.getElementById('targetText').disabled = false;
         document.getElementById('searchBtn').disabled = false;
 
-        // 本物のWebドメインなのでカメラがスムーズに自動起動します！
         startCamera();
 
       } catch (err) {
@@ -82,22 +84,18 @@
       }
     };
 
-    // カメラ自動起動＆リアルタイムスキャン
     function startCamera() {
       html5Qrcode = new Html5Qrcode("reader");
       const config = { fps: 15, qrbox: { width: 220, height: 220 } };
 
       html5Qrcode.start(
-        { facingMode: "environment" }, // 背面カメラ
+        { facingMode: "environment" },
         config,
         function(decodedText) {
-          // QRコードを「かざすだけ」で一瞬で検知
           document.getElementById('targetText').value = decodedText;
           searchAndDisplay(decodedText);
         },
-        function(errorMessage) {
-          // 走査中のエラーは無視
-        }
+        function(errorMessage) {}
       ).catch(function(err) {
         console.error("カメラエラー:", err);
         document.getElementById('status').innerText = "⚠️ カメラが起動できませんでした。権限をご確認ください。";
