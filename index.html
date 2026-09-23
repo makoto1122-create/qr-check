@@ -8,7 +8,7 @@
   <style>
     body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f4f7f6; margin: 0; }
     h2 { margin-top: 10px; font-size: 20px; }
-    #status { margin-bottom: 15px; font-weight: bold; color: #0066cc; }
+    #status { margin-bottom: 15px; font-weight: bold; color: #0066cc; line-height: 1.5; }
     
     #reader { width: 100%; max-width: 360px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; min-height: 250px; }
     
@@ -16,11 +16,22 @@
     input[type="text"] { padding: 12px; width: 65%; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
     button.search-btn { padding: 12px 15px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-left: 2%; width: 28%; }
     
-    #result-box { margin-top: 20px; padding: 20px; border-radius: 8px; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; max-width: 360px; margin-left: auto; margin-right: auto; }
-    .label { font-size: 14px; color: #666; margin-top: 15px; }
-    .value { font-size: 22px; font-weight: bold; color: #333; margin-bottom: 5px; }
-    .error { color: #d9534f; font-size: 20px; font-weight: bold; }
+    #result-box { margin-top: 20px; padding: 15px; border-radius: 8px; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; max-width: 380px; margin-left: auto; margin-right: auto; text-align: left; }
+    
+    .result-header { text-align: center; }
     .success-text { color: #5cb85c; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
+    .error { color: #d9534f; font-size: 20px; font-weight: bold; text-align: center; }
+
+    .info-group { margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    .info-group:last-child { border-bottom: none; }
+    .label { font-size: 12px; color: #666; font-weight: bold; }
+    .value { font-size: 18px; font-weight: bold; color: #333; margin-top: 2px; word-break: break-all; }
+    
+    .date-grid { display: flex; justify-content: space-between; background: #f8f9fa; padding: 10px; border-radius: 6px; margin-top: 10px; }
+    .date-item { text-align: center; flex: 1; border-right: 1px solid #ddd; }
+    .date-item:last-child { border-right: none; }
+    .date-item .label { font-size: 12px; color: #0066cc; }
+    .date-item .value { font-size: 16px; color: #222; }
   </style>
 </head>
 <body>
@@ -36,17 +47,44 @@
   </div>
   
   <div id="result-box">
-    <div id="result-msg"></div>
+    <div id="result-msg" class="result-header"></div>
+    
     <div id="result-details" style="display: none;">
-      <div class="label">試合日</div>
-      <div class="value" id="res-date"></div>
-      <div class="label">契約名義</div>
-      <div class="value" id="res-name"></div>
+      <div class="info-group">
+        <div class="label">試合日 (B列)</div>
+        <div class="value" id="res-date">-</div>
+      </div>
+      <div class="info-group">
+        <div class="label">お客さまコード (D列)</div>
+        <div class="value" id="res-code">-</div>
+      </div>
+      <div class="info-group">
+        <div class="label">契約名義 (E列)</div>
+        <div class="value" id="res-name">-</div>
+      </div>
+      <div class="info-group">
+        <div class="label">担当者名 (F列)</div>
+        <div class="value" id="res-staff">-</div>
+      </div>
+
+      <div class="date-grid">
+        <div class="date-item">
+          <div class="label">9/27</div>
+          <div class="value" id="res-g">-</div>
+        </div>
+        <div class="date-item">
+          <div class="label">9/29</div>
+          <div class="value" id="res-h">-</div>
+        </div>
+        <div class="date-item">
+          <div class="label">10/3</div>
+          <div class="value" id="res-i">-</div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
-    // ★手順1で取得したURLをここに貼り付けてください（" " で囲むのを忘れずに）
     const TSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTchepW59QeTUZfT1iY0SFhINTT305WxZ38kP1ud-iuK7dyHcRN3RZE-wmNTe3mEuGaqiARIfA6ZmDf/pub?gid=0&single=true&output=tsv";
 
     let dataMap = new Map();
@@ -54,25 +92,47 @@
 
     window.onload = async function() {
       try {
-        // GASを経由せず、Googleサーバーから直接データをダウンロード（爆速）
         const res = await fetch(TSV_URL);
         const tsvText = await res.text();
 
-        // 読み込んだテキストを改行で切り分ける
         const lines = tsvText.split(/\r?\n/);
         
-        // 1行目（ヘッダー行）は飛ばしたい場合は i = 1 からスタート
+        let totalRows = lines.length - 1;
+        let duplicateCount = 0;
+        let emptyKeyCount = 0;
+
         for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split('\t'); // タブで分割
-          if (cols.length >= 3) {
+          const cols = lines[i].split('\t');
+          
+          if (cols.length >= 1) {
             const key = String(cols[0]).trim();
+            
             if (key !== "") {
-              dataMap.set(key, { date: cols[1], name: cols[2] });
+              if (dataMap.has(key)) {
+                duplicateCount++;
+              }
+              
+              dataMap.set(key, { 
+                date: cols[1] ? cols[1].trim() : "",        // B列：試合日
+                code: cols[3] ? cols[3].trim() : "",        // D列：お客さまコード
+                name: cols[4] ? cols[4].trim() : "",        // E列：契約名義
+                staff: cols[5] ? cols[5].trim() : "",       // F列：担当者名
+                gVal: cols[6] ? cols[6].trim() : "-",       // G列：9/27
+                hVal: cols[7] ? cols[7].trim() : "-",       // H列：9/29
+                iVal: cols[8] ? cols[8].trim() : "-"        // I列：10/3
+              });
+            } else {
+              emptyKeyCount++;
             }
           }
         }
 
-        document.getElementById('status').innerText = `✅ 準備完了！(${dataMap.size}件のデータ)`;
+        document.getElementById('status').innerHTML = 
+          `✅ 登録完了: <b>${dataMap.size.toLocaleString()}件</b> (ユニーク)<br>` +
+          `<span style="font-size:12px; color:#666;">` +
+          `総行数: ${totalRows.toLocaleString()}行 / 重複分: ${duplicateCount.toLocaleString()}件` +
+          `</span>`;
+          
         document.getElementById('targetText').disabled = false;
         document.getElementById('searchBtn').disabled = false;
 
@@ -98,7 +158,7 @@
         function(errorMessage) {}
       ).catch(function(err) {
         console.error("カメラエラー:", err);
-        document.getElementById('status').innerText = "⚠️ カメラが起動できませんでした。権限をご確認ください。";
+        document.getElementById('status').innerText = "⚠️ カメラが起動できませんでした。";
       });
     }
 
@@ -114,16 +174,29 @@
       const resultBox = document.getElementById('result-box');
       const resultMsg = document.getElementById('result-msg');
       const resultDetails = document.getElementById('result-details');
+      
       const resDate = document.getElementById('res-date');
+      const resCode = document.getElementById('res-code');
       const resName = document.getElementById('res-name');
+      const resStaff = document.getElementById('res-staff');
+      const resG = document.getElementById('res-g');
+      const resH = document.getElementById('res-h');
+      const resI = document.getElementById('res-i');
 
       resultBox.style.display = 'block';
       const data = dataMap.get(text);
 
       if (data) {
         resultMsg.innerHTML = '<div class="success-text">✅ 照合OK</div>';
-        resDate.innerText = data.date;
-        resName.innerText = data.name;
+        
+        resDate.innerText = data.date || "未設定";
+        resCode.innerText = data.code || "未設定";
+        resName.innerText = data.name || "未設定";
+        resStaff.innerText = data.staff || "未設定";
+        resG.innerText = data.gVal;
+        resH.innerText = data.hVal;
+        resI.innerText = data.iVal;
+
         resultDetails.style.display = 'block';
       } else {
         resultMsg.innerHTML = '<div class="error">❌ 該当データなし</div>';
