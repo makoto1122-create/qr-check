@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>QRコード高速照合システム ver1.3</title>
+  <title>QRコード高速照合システム ver1.4</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
     body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f4f7f6; margin: 0; }
@@ -31,7 +31,7 @@
   </style>
 </head>
 <body>
-  <h2>チケット照合システム <span class="ver-tag">ver 1.3</span></h2>
+  <h2>チケット照合システム <span class="ver-tag">ver 1.4</span></h2>
   
   <div id="status">⏳ データを読み込み中...</div>
 
@@ -105,8 +105,6 @@
                 duplicateCount++;
               }
               
-              // 列インデックス (0スタート)
-              // B=1, D=3, E=4, F=5, G=6, H=7, I=8
               dataMap.set(key, { 
                 date: cols[1] ? cols[1].trim() : "",        // B列：試合日
                 code: cols[3] ? cols[3].trim() : "",        // D列：お客さまコード
@@ -174,6 +172,15 @@
       return `<a href="${url}" target="_blank" rel="noopener noreferrer">${val} 🔗</a>`;
     }
 
+    // 試合日（B列）の表示置換関数
+    function formatMatchDate(val) {
+      if (!val) return "未設定";
+      if (val.includes("未定券1")) return "9/27（未定券1）";
+      if (val.includes("未定券2")) return "10/3（未定券2）";
+      if (val.includes("未定券3")) return "9/29（未定券3）";
+      return val; // 予備券1、予備券2などはそのまま表示
+    }
+
     function searchAndDisplay(text) {
       const resultBox = document.getElementById('result-box');
       const resultMsg = document.getElementById('result-msg');
@@ -193,12 +200,13 @@
       if (data) {
         resultMsg.innerHTML = '<div class="success-text">✅ 照合OK</div>';
         
-        resDate.innerText = data.date || "未設定";
+        // B列の置換処理を適用
+        resDate.innerText = formatMatchDate(data.date);
+        
         resCode.innerText = data.code || "未設定";
         resName.innerText = data.name || "未設定";
         resStaff.innerText = data.staff || "未設定";
 
-        // URLリンク化して画面へ出力
         resG.innerHTML = buildUrlLink(data.gVal, '090092-1407-001');
         resI.innerHTML = buildUrlLink(data.iVal, '090092-1408-001');
         resH.innerHTML = buildUrlLink(data.hVal, '090092-1409-001');
