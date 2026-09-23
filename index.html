@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>QRコード高速照合システム ver1.7</title>
+  <title>QRコード高速照合システム ver1.9</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
     body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f4f7f6; margin: 0; }
@@ -38,7 +38,7 @@
   </style>
 </head>
 <body>
-  <h2>チケット照合システム <span class="ver-tag">ver 1.7</span></h2>
+  <h2>チケット照合システム <span class="ver-tag">ver 1.9</span></h2>
   
   <div id="status">⏳ データを読み込み中...</div>
   <div class="update-bar">
@@ -74,6 +74,10 @@
         <div class="value" id="res-staff">-</div>
       </div>
       <div class="info-group">
+        <div class="label">席番 (C列)</div>
+        <div class="value" id="res-seat">-</div>
+      </div>
+      <div class="info-group">
         <div class="label">9/27 (G列)</div>
         <div class="value" id="res-g">-</div>
       </div>
@@ -96,7 +100,6 @@
     let dataMap = new Map();
     let html5Qrcode = null;
 
-    // --- IndexedDB（ブラウザ保存用ヘルパー） ---
     function openDB() {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open("QRCheckDB", 1);
@@ -144,14 +147,12 @@
 
     window.onload = async function() {
       try {
-        // 保存データの確認
         let tsvText = await getSavedTsv();
         let isFromCache = false;
 
         if (tsvText) {
           isFromCache = true;
         } else {
-          // キャッシュがなければGoogleからダウンロードして保存
           document.getElementById('status').innerText = "⏳ 初回データをダウンロード中...";
           const res = await fetch(TSV_URL);
           tsvText = await res.text();
@@ -173,7 +174,6 @@
       }
     };
 
-    // TSVのパースと準備
     function parseAndSetupData(tsvText, isFromCache) {
       dataMap.clear();
       const lines = tsvText.split(/\r?\n/);
@@ -193,14 +193,17 @@
               duplicateCount++;
             }
             
+            // 列インデックス (0スタート)
+            // A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7, I=8
             dataMap.set(key, { 
-              date: cols[1] ? cols[1].trim() : "",        // B列：試合日
-              code: cols[3] ? cols[3].trim() : "",        // D列：お客さまコード
-              name: cols[4] ? cols[4].trim() : "",        // E列：契約名義
-              staff: cols[5] ? cols[5].trim() : "",       // F列：担当者名
-              gVal: cols[6] ? cols[6].trim() : "-",       // G列：9/27
-              iVal: cols[8] ? cols[8].trim() : "-",       // I列：9/29
-              hVal: cols[7] ? cols[7].trim() : "-"        // H列：10/3
+              date: cols[1] ? cols[1].trim() : "",
+              seat: cols[2] ? cols[2].trim() : "",        // C列：席番
+              code: cols[3] ? cols[3].trim() : "",
+              name: cols[4] ? cols[4].trim() : "",
+              staff: cols[5] ? cols[5].trim() : "",
+              gVal: cols[6] ? cols[6].trim() : "-",
+              iVal: cols[8] ? cols[8].trim() : "-",
+              hVal: cols[7] ? cols[7].trim() : "-"
             });
           } else {
             emptyKeyCount++;
@@ -219,7 +222,6 @@
         `</span>`;
     }
 
-    // 手動更新ボタン用処理
     async function forceUpdateData() {
       if (!confirm("Googleスプレッドシートから最新データを再取得しますか？")) return;
       
@@ -227,7 +229,6 @@
       document.getElementById('forceUpdateBtn').disabled = true;
 
       try {
-        // キャッシュ回避パラメータを付与して強制フェッチ
         const res = await fetch(TSV_URL + "&t=" + new Date().getTime());
         const tsvText = await res.text();
         await saveTsv(tsvText);
@@ -270,6 +271,7 @@
     function clearResult() {
       document.getElementById('targetText').value = '';
       document.getElementById('result-box').style.display = 'none';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       document.getElementById('targetText').focus();
     }
 
@@ -298,6 +300,7 @@
       const resCode = document.getElementById('res-code');
       const resName = document.getElementById('res-name');
       const resStaff = document.getElementById('res-staff');
+      const resSeat = document.getElementById('res-seat');
       const resG = document.getElementById('res-g');
       const resI = document.getElementById('res-i');
       const resH = document.getElementById('res-h');
@@ -312,14 +315,10 @@
         resCode.innerText = data.code || "未設定";
         resName.innerText = data.name || "未設定";
         resStaff.innerText = data.staff || "未設定";
+        resSeat.innerText = data.seat || "未設定";
 
-        // 9/27: 有効
         resG.innerHTML = buildUrlLink(data.gVal, '090092-1407-001');
-
-        // 9/29: 一時無効化（テキストのみ表示）
         resI.innerText = data.iVal;
-
-        // 10/3: 一時無効化（テキストのみ表示）
         resH.innerText = data.hVal;
 
         resultDetails.style.display = 'block';
@@ -327,6 +326,10 @@
         resultMsg.innerHTML = '<div class="error">❌ 該当データなし</div>';
         resultDetails.style.display = 'none';
       }
+
+      setTimeout(() => {
+        resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
     }
   </script>
 </body>
