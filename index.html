@@ -3,13 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>QRコード高速照合システム ver1.6</title>
+  <title>QRコード高速照合システム ver1.7</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
     body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f4f7f6; margin: 0; }
     h2 { margin-top: 10px; font-size: 20px; }
     .ver-tag { font-size: 14px; color: #0066cc; font-weight: bold; margin-left: 6px; }
-    #status { margin-bottom: 15px; font-weight: bold; color: #0066cc; line-height: 1.5; }
+    #status { margin-bottom: 8px; font-weight: bold; color: #0066cc; line-height: 1.5; }
+    
+    .update-bar { margin-bottom: 15px; }
+    .reload-btn { padding: 6px 14px; font-size: 13px; background-color: #17a2b8; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    .reload-btn:disabled { background-color: #ccc; }
     
     #reader { width: 100%; max-width: 360px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; min-height: 250px; }
     
@@ -34,9 +38,12 @@
   </style>
 </head>
 <body>
-  <h2>チケット照合システム <span class="ver-tag">ver 1.6</span></h2>
+  <h2>チケット照合システム <span class="ver-tag">ver 1.7</span></h2>
   
   <div id="status">⏳ データを読み込み中...</div>
+  <div class="update-bar">
+    <button id="forceUpdateBtn" class="reload-btn" onclick="forceUpdateData()" disabled>🔄 データを最新に更新</button>
+  </div>
 
   <div id="reader"></div>
 
@@ -89,52 +96,74 @@
     let dataMap = new Map();
     let html5Qrcode = null;
 
+    // --- IndexedDB（ブラウザ保存用ヘルパー） ---
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open("QRCheckDB", 1);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("cacheStore")) {
+            db.createObjectStore("cacheStore");
+          }
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function getSavedTsv() {
+      try {
+        const db = await openDB();
+        return new Promise((resolve) => {
+          const tx = db.transaction("cacheStore", "readonly");
+          const store = tx.objectStore("cacheStore");
+          const req = store.get("tsvData");
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        });
+      } catch (e) {
+        console.error("Cache read error:", e);
+        return null;
+      }
+    }
+
+    async function saveTsv(data) {
+      try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("cacheStore", "readwrite");
+          const store = tx.objectStore("cacheStore");
+          const req = store.put(data, "tsvData");
+          req.onsuccess = () => resolve();
+          req.onerror = (e) => reject(e.target.error);
+        });
+      } catch (e) {
+        console.error("Cache write error:", e);
+      }
+    }
+
     window.onload = async function() {
       try {
-        const res = await fetch(TSV_URL);
-        const tsvText = await res.text();
+        // 保存データの確認
+        let tsvText = await getSavedTsv();
+        let isFromCache = false;
 
-        const lines = tsvText.split(/\r?\n/);
-        
-        let totalRows = lines.length - 1;
-        let duplicateCount = 0;
-        let emptyKeyCount = 0;
-
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split('\t');
-          
-          if (cols.length >= 1) {
-            const key = String(cols[0]).trim();
-            
-            if (key !== "") {
-              if (dataMap.has(key)) {
-                duplicateCount++;
-              }
-              
-              dataMap.set(key, { 
-                date: cols[1] ? cols[1].trim() : "",        // B列：試合日
-                code: cols[3] ? cols[3].trim() : "",        // D列：お客さまコード
-                name: cols[4] ? cols[4].trim() : "",        // E列：契約名義
-                staff: cols[5] ? cols[5].trim() : "",       // F列：担当者名
-                gVal: cols[6] ? cols[6].trim() : "-",       // G列：9/27
-                iVal: cols[8] ? cols[8].trim() : "-",       // I列：9/29
-                hVal: cols[7] ? cols[7].trim() : "-"        // H列：10/3
-              });
-            } else {
-              emptyKeyCount++;
-            }
-          }
+        if (tsvText) {
+          isFromCache = true;
+        } else {
+          // キャッシュがなければGoogleからダウンロードして保存
+          document.getElementById('status').innerText = "⏳ 初回データをダウンロード中...";
+          const res = await fetch(TSV_URL);
+          tsvText = await res.text();
+          await saveTsv(tsvText);
         }
 
-        document.getElementById('status').innerHTML = 
-          `✅ 登録完了: <b>${dataMap.size.toLocaleString()}件</b> (ユニーク)<br>` +
-          `<span style="font-size:12px; color:#666;">` +
-          `総行数: ${totalRows.toLocaleString()}行 / 重複分: ${duplicateCount.toLocaleString()}件` +
-          `</span>`;
-          
+        parseAndSetupData(tsvText, isFromCache);
+
         document.getElementById('targetText').disabled = false;
         document.getElementById('searchBtn').disabled = false;
         document.getElementById('clearBtn').disabled = false;
+        document.getElementById('forceUpdateBtn').disabled = false;
 
         startCamera();
 
@@ -143,6 +172,74 @@
         document.getElementById('status').innerText = "❌ データの読み込みに失敗しました。";
       }
     };
+
+    // TSVのパースと準備
+    function parseAndSetupData(tsvText, isFromCache) {
+      dataMap.clear();
+      const lines = tsvText.split(/\r?\n/);
+      
+      let totalRows = lines.length - 1;
+      let duplicateCount = 0;
+      let emptyKeyCount = 0;
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split('\t');
+        
+        if (cols.length >= 1) {
+          const key = String(cols[0]).trim();
+          
+          if (key !== "") {
+            if (dataMap.has(key)) {
+              duplicateCount++;
+            }
+            
+            dataMap.set(key, { 
+              date: cols[1] ? cols[1].trim() : "",        // B列：試合日
+              code: cols[3] ? cols[3].trim() : "",        // D列：お客さまコード
+              name: cols[4] ? cols[4].trim() : "",        // E列：契約名義
+              staff: cols[5] ? cols[5].trim() : "",       // F列：担当者名
+              gVal: cols[6] ? cols[6].trim() : "-",       // G列：9/27
+              iVal: cols[8] ? cols[8].trim() : "-",       // I列：9/29
+              hVal: cols[7] ? cols[7].trim() : "-"        // H列：10/3
+            });
+          } else {
+            emptyKeyCount++;
+          }
+        }
+      }
+
+      const cacheTag = isFromCache 
+        ? "<span style='color:#28a745;'>⚡ キャッシュ（保存データ）を使用中</span>" 
+        : "<span style='color:#17a2b8;'>🌐 最新データを保存しました</span>";
+
+      document.getElementById('status').innerHTML = 
+        `✅ 登録完了: <b>${dataMap.size.toLocaleString()}件</b> (ユニーク) | ${cacheTag}<br>` +
+        `<span style="font-size:12px; color:#666;">` +
+        `総行数: ${totalRows.toLocaleString()}行 / 重複分: ${duplicateCount.toLocaleString()}件` +
+        `</span>`;
+    }
+
+    // 手動更新ボタン用処理
+    async function forceUpdateData() {
+      if (!confirm("Googleスプレッドシートから最新データを再取得しますか？")) return;
+      
+      document.getElementById('status').innerText = "⏳ 最新データをダウンロード中...";
+      document.getElementById('forceUpdateBtn').disabled = true;
+
+      try {
+        // キャッシュ回避パラメータを付与して強制フェッチ
+        const res = await fetch(TSV_URL + "&t=" + new Date().getTime());
+        const tsvText = await res.text();
+        await saveTsv(tsvText);
+        parseAndSetupData(tsvText, false);
+        alert("データを最新に更新・保存しました！");
+      } catch (err) {
+        console.error(err);
+        alert("データの更新に失敗しました。通信環境を確認してください。");
+      } finally {
+        document.getElementById('forceUpdateBtn').disabled = false;
+      }
+    }
 
     function startCamera() {
       html5Qrcode = new Html5Qrcode("reader");
@@ -219,12 +316,10 @@
         // 9/27: 有効
         resG.innerHTML = buildUrlLink(data.gVal, '090092-1407-001');
 
-        // 9/29: 一時無効化（テキストのみ表示。復活時は上の行コメントアウトを解除し下の行を無効化）
-        // resI.innerHTML = buildUrlLink(data.iVal, '090092-1408-001');
+        // 9/29: 一時無効化（テキストのみ表示）
         resI.innerText = data.iVal;
 
-        // 10/3: 一時無効化（テキストのみ表示。復活時は上の行コメントアウトを解除し下の行を無効化）
-        // resH.innerHTML = buildUrlLink(data.hVal, '090092-1409-001');
+        // 10/3: 一時無効化（テキストのみ表示）
         resH.innerText = data.hVal;
 
         resultDetails.style.display = 'block';
