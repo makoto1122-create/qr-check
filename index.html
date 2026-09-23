@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>QRコード高速照合システム ver1.4</title>
+  <title>QRコード高速照合システム ver1.5</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
     body { font-family: sans-serif; padding: 15px; text-align: center; background-color: #f4f7f6; margin: 0; }
@@ -13,11 +13,13 @@
     
     #reader { width: 100%; max-width: 360px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; min-height: 250px; }
     
-    .manual-input { margin-top: 20px; }
-    input[type="text"] { padding: 12px; width: 65%; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-    button.search-btn { padding: 12px 15px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-left: 2%; width: 28%; }
+    /* 手入力・ボタンエリア */
+    .manual-input { margin-top: 20px; display: flex; justify-content: center; gap: 6px; max-width: 380px; margin-left: auto; margin-right: auto; }
+    input[type="text"] { padding: 12px; flex: 1; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; min-width: 0; }
+    button.search-btn { padding: 12px 14px; font-size: 15px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; font-weight: bold; white-space: nowrap; }
+    button.clear-btn { padding: 12px 14px; font-size: 15px; cursor: pointer; background: #6c757d; color: #fff; border: none; border-radius: 4px; font-weight: bold; white-space: nowrap; }
     
-    #result-box { margin-top: 20px; padding: 15px; border-radius: 8px; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; max-width: 380px; margin-left: auto; margin-right: auto; text-align: left; }
+    #result-box { margin-top: 20px; padding: 15px; border-radius: 8px; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; max-width: 380px; margin-left: auto; margin-right: auto; text-align: left; position: relative; }
     
     .result-header { text-align: center; }
     .success-text { color: #5cb85c; font-size: 22px; font-weight: bold; margin-bottom: 10px; }
@@ -28,10 +30,13 @@
     .label { font-size: 12px; color: #666; font-weight: bold; }
     .value { font-size: 18px; font-weight: bold; color: #333; margin-top: 2px; word-break: break-all; }
     .value a { color: #0066cc; text-decoration: underline; }
+
+    /* 結果ボックス内の大型クリアボタン */
+    .box-clear-btn { display: block; width: 100%; margin-top: 15px; padding: 12px; font-size: 16px; font-weight: bold; color: #fff; background-color: #6c757d; border: none; border-radius: 6px; cursor: pointer; text-align: center; }
   </style>
 </head>
 <body>
-  <h2>チケット照合システム <span class="ver-tag">ver 1.4</span></h2>
+  <h2>チケット照合システム <span class="ver-tag">ver 1.5</span></h2>
   
   <div id="status">⏳ データを読み込み中...</div>
 
@@ -40,6 +45,7 @@
   <div class="manual-input">
     <input type="text" id="targetText" placeholder="QRデータを入力" onkeydown="if(event.key==='Enter') manualSearch()" disabled>
     <button id="searchBtn" class="search-btn" onclick="manualSearch()" disabled>検索</button>
+    <button id="clearBtn" class="clear-btn" onclick="clearResult()" disabled>クリア</button>
   </div>
   
   <div id="result-box">
@@ -75,6 +81,9 @@
         <div class="value" id="res-h">-</div>
       </div>
     </div>
+
+    <!-- 結果確認後にもサッと消せる大型クリアボタン -->
+    <button class="box-clear-btn" onclick="clearResult()">表示をクリア</button>
   </div>
 
   <script>
@@ -128,6 +137,7 @@
           
         document.getElementById('targetText').disabled = false;
         document.getElementById('searchBtn').disabled = false;
+        document.getElementById('clearBtn').disabled = false;
 
         startCamera();
 
@@ -163,7 +173,13 @@
       inputEl.select();
     }
 
-    // URLリンク生成用ヘルパー関数
+    // 入力文字と検索結果をクリアする関数
+    function clearResult() {
+      document.getElementById('targetText').value = '';
+      document.getElementById('result-box').style.display = 'none';
+      document.getElementById('targetText').focus();
+    }
+
     function buildUrlLink(val, eventCode) {
       if (!val || val === "-" || val === "未設定") {
         return "-";
@@ -172,13 +188,12 @@
       return `<a href="${url}" target="_blank" rel="noopener noreferrer">${val} 🔗</a>`;
     }
 
-    // 試合日（B列）の表示置換関数
     function formatMatchDate(val) {
       if (!val) return "未設定";
       if (val.includes("未定券1")) return "9/27（未定券1）";
       if (val.includes("未定券2")) return "10/3（未定券2）";
       if (val.includes("未定券3")) return "9/29（未定券3）";
-      return val; // 予備券1、予備券2などはそのまま表示
+      return val;
     }
 
     function searchAndDisplay(text) {
@@ -200,9 +215,7 @@
       if (data) {
         resultMsg.innerHTML = '<div class="success-text">✅ 照合OK</div>';
         
-        // B列の置換処理を適用
         resDate.innerText = formatMatchDate(data.date);
-        
         resCode.innerText = data.code || "未設定";
         resName.innerText = data.name || "未設定";
         resStaff.innerText = data.staff || "未設定";
